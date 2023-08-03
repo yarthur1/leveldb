@@ -44,7 +44,7 @@ Slice FilterBlockBuilder::Finish() {
     PutFixed32(&result_, filter_offsets_[i]);
   }
 
-  PutFixed32(&result_, array_offset);
+  PutFixed32(&result_, array_offset);  // 在后面添加长度
   result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
   return Slice(result_);
 }
@@ -53,7 +53,7 @@ void FilterBlockBuilder::GenerateFilter() {
   const size_t num_keys = start_.size();
   if (num_keys == 0) {
     // Fast path if there are no keys for this filter
-    filter_offsets_.push_back(result_.size());
+    filter_offsets_.push_back(result_.size());   // 记录偏移
     return;
   }
 
@@ -68,7 +68,7 @@ void FilterBlockBuilder::GenerateFilter() {
 
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(result_.size());
-  policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);
+  policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);  // 过滤数据已经放到result_中
 
   tmp_keys_.clear();
   keys_.clear();

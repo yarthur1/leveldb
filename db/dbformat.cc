@@ -12,7 +12,7 @@ namespace leveldb {
 static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
   assert(t <= kValueTypeForSeek);
-  return (seq << 8) | t;
+  return (seq << 8) | t;  // 后8位用作val type
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
@@ -26,7 +26,7 @@ std::string ParsedInternalKey::DebugString() const {
            (unsigned long long) sequence,
            int(type));
   std::string result = "'";
-  result += EscapeString(user_key.ToString());
+  result += EscapeString(user_key.ToString());  // 去除不可打印字符
   result += buf;
   return result;
 }
@@ -47,7 +47,7 @@ const char* InternalKeyComparator::Name() const {
   return "leveldb.InternalKeyComparator";
 }
 
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {  // 内部key排序：user_key按升序排列，sequence按降序排列
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
@@ -65,7 +65,7 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   return r;
 }
 
-void InternalKeyComparator::FindShortestSeparator(
+void InternalKeyComparator::FindShortestSeparator(   // 用作定位标记 kValueTypeForSeek
       std::string* start,
       const Slice& limit) const {
   // Attempt to shorten the user portion of the key
@@ -74,7 +74,7 @@ void InternalKeyComparator::FindShortestSeparator(
   std::string tmp(user_start.data(), user_start.size());
   user_comparator_->FindShortestSeparator(&tmp, user_limit);
   if (tmp.size() < user_start.size() &&
-      user_comparator_->Compare(user_start, tmp) < 0) {
+      user_comparator_->Compare(user_start, tmp) < 0) {   // 如果自增并且截断了
     // User key has become shorter physically, but larger logically.
     // Tack on the earliest possible number to the shortened user key.
     PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));

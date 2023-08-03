@@ -75,7 +75,7 @@ struct ParsedInternalKey {
   ParsedInternalKey() { }  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) { }
-  std::string DebugString() const;
+  std::string DebugString() const;   // "'key' @ %llu : %d"
 };
 
 // Return the length of the encoding of "key".
@@ -141,13 +141,13 @@ class InternalFilterPolicy : public FilterPolicy {
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
 // incorrectly use string comparisons instead of an InternalKeyComparator.
-class InternalKey {
+class InternalKey {  // user_key+uint64
  private:
   std::string rep_;
  public:
   InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& user_key, SequenceNumber s, ValueType t) {
-    AppendInternalKey(&rep_, ParsedInternalKey(user_key, s, t));
+    AppendInternalKey(&rep_, ParsedInternalKey(user_key, s, t));    // user_key+uint64
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }

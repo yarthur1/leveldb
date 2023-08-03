@@ -206,7 +206,7 @@ class VersionSet {
   int64_t NumLevelBytes(int level) const;
 
   // Return the last sequence number.
-  uint64_t LastSequence() const { return last_sequence_; }
+  uint64_t LastSequence() const { return last_sequence_; }   // 上一个序号
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
@@ -249,7 +249,7 @@ class VersionSet {
 
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
-    Version* v = current_;
+    Version* v = current_;  // 当前版本?
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != NULL);
   }
 
@@ -313,7 +313,7 @@ class VersionSet {
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
-  std::string compact_pointer_[config::kNumLevels];
+  std::string compact_pointer_[config::kNumLevels];  // 版本切换后还没完成的level compaction如何处理
 
   // No copying allowed
   VersionSet(const VersionSet&);

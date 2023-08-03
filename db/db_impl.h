@@ -99,7 +99,7 @@ class DBImpl : public DB {
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
-      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);  // 什么写法
   WriteBatch* BuildBatchGroup(Writer** last_writer);
 
   void RecordBackgroundError(const Status& s);

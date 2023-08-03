@@ -55,7 +55,7 @@ struct DBImpl::CompactionState {
   // will never have to service a snapshot below smallest_snapshot.
   // Therefore if we have seen a sequence number S <= smallest_snapshot,
   // we can drop all entries for the same key with sequence numbers < S.
-  SequenceNumber smallest_snapshot;
+  SequenceNumber smallest_snapshot;  // ?
 
   // Files produced by compaction
   struct Output {
@@ -499,7 +499,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);  // 写到磁盘
     mutex_.Lock();
   }
 
@@ -518,7 +518,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != NULL) {
-      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key); // compaction放在哪一level
     }
     edit->AddFile(level, meta.number, meta.file_size,
                   meta.smallest, meta.largest);
@@ -539,7 +539,7 @@ void DBImpl::CompactMemTable() {
   VersionEdit edit;
   Version* base = versions_->current();
   base->Ref();
-  Status s = WriteLevel0Table(imm_, &edit, base);
+  Status s = WriteLevel0Table(imm_, &edit, base);  //  minor compaction
   base->Unref();
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
@@ -581,7 +581,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
 }
 
-void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
+void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {   // 手动触发
   assert(level >= 0);
   assert(level + 1 < config::kNumLevels);
 
@@ -593,7 +593,7 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   if (begin == NULL) {
     manual.begin = NULL;
   } else {
-    begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
+    begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);  // kMaxSequenceNumber
     manual.begin = &begin_storage;
   }
   if (end == NULL) {
@@ -683,7 +683,7 @@ void DBImpl::BackgroundCall() {
   bg_cv_.SignalAll();
 }
 
-void DBImpl::BackgroundCompaction() {
+void DBImpl::BackgroundCompaction() {  // 后台压缩
   mutex_.AssertHeld();
 
   if (imm_ != NULL) {
@@ -708,7 +708,7 @@ void DBImpl::BackgroundCompaction() {
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
   } else {
-    c = versions_->PickCompaction();
+    c = versions_->PickCompaction();  // 获取compaction信息
   }
 
   Status status;
@@ -734,7 +734,7 @@ void DBImpl::BackgroundCompaction() {
         versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
-    status = DoCompactionWork(compact);
+    status = DoCompactionWork(compact);   // 有解锁
     if (!status.ok()) {
       RecordBackgroundError(status);
     }
@@ -794,10 +794,10 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     file_number = versions_->NewFileNumber();
     pending_outputs_.insert(file_number);
     CompactionState::Output out;
-    out.number = file_number;
+    out.number = file_number;   // 只指定了file_number
     out.smallest.Clear();
     out.largest.Clear();
-    compact->outputs.push_back(out);
+    compact->outputs.push_back(out);  // output初始化
     mutex_.Unlock();
   }
 
@@ -805,12 +805,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
-    compact->builder = new TableBuilder(options_, compact->outfile);
+    compact->builder = new TableBuilder(options_, compact->outfile);  // TableBuilder
   }
   return s;
 }
 
-Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
+Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,   // 将文件输出
                                           Iterator* input) {
   assert(compact != NULL);
   assert(compact->outfile != NULL);
@@ -825,7 +825,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok()) {
     s = compact->builder->Finish();
   } else {
-    compact->builder->Abandon();
+    compact->builder->Abandon();  // 迭代器出错数据全部废弃
   }
   const uint64_t current_bytes = compact->builder->FileSize();
   compact->current_output()->file_size = current_bytes;
@@ -884,7 +884,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
-Status DBImpl::DoCompactionWork(CompactionState* compact) {
+Status DBImpl::DoCompactionWork(CompactionState* compact) {  // 如何合并,只是在指定的level做合并
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -896,9 +896,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == NULL);
-  assert(compact->outfile == NULL);
+  assert(compact->outfile == NULL);   // 初始为空
   if (snapshots_.empty()) {
-    compact->smallest_snapshot = versions_->LastSequence();
+    compact->smallest_snapshot = versions_->LastSequence();  // snapshot的变化,smallest_snapshot=最新的序列号
   } else {
     compact->smallest_snapshot = snapshots_.oldest()->number_;
   }
@@ -906,14 +906,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
 
-  Iterator* input = versions_->MakeInputIterator(compact->compaction);
+  Iterator* input = versions_->MakeInputIterator(compact->compaction);  // 迭代器
   input->SeekToFirst();
   Status status;
   ParsedInternalKey ikey;
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
-  for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
+  for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {  // user_key升序，sequence降序
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != NULL) {
       const uint64_t imm_start = env_->NowMicros();
@@ -927,7 +927,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
-    if (compact->compaction->ShouldStopBefore(key) &&
+    if (compact->compaction->ShouldStopBefore(key) &&    // ???
         compact->builder != NULL) {
       status = FinishCompactionOutputFile(compact, input);
       if (!status.ok()) {
@@ -937,7 +937,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     // Handle key/value, add to state, etc.
     bool drop = false;
-    if (!ParseInternalKey(key, &ikey)) {
+    if (!ParseInternalKey(key, &ikey)) {   // 没有解析成功怎么办
       // Do not hide error keys
       current_user_key.clear();
       has_current_user_key = false;
@@ -949,15 +949,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // First occurrence of this user key
         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
         has_current_user_key = true;
-        last_sequence_for_key = kMaxSequenceNumber;
+        last_sequence_for_key = kMaxSequenceNumber;  // 第一个保留下来,sequence是降序排列，第一个sequence是最大的
       }
 
-      if (last_sequence_for_key <= compact->smallest_snapshot) {
+      if (last_sequence_for_key <= compact->smallest_snapshot) {  // 丢弃的数据是最小snapshot以前的数据
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
-                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {  // level越高，数据越久，如果高层还有数据，如果将当前层数据删除，就有可能读到老的数据
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
@@ -980,7 +980,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         (int)last_sequence_for_key, (int)compact->smallest_snapshot);
 #endif
 
-    if (!drop) {
+    if (!drop) {   // key没有解析成功，同样处理?
       // Open output file if necessary
       if (compact->builder == NULL) {
         status = OpenCompactionOutputFile(compact);
@@ -992,7 +992,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, input->value());
+      compact->builder->Add(key, input->value());  // 标记不删除? builder会输出到sstable?
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1034,7 +1034,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   stats_[compact->compaction->level() + 1].Add(stats);
 
   if (status.ok()) {
-    status = InstallCompactionResults(compact);
+    status = InstallCompactionResults(compact);  // 版本变更
   }
   if (!status.ok()) {
     RecordBackgroundError(status);
@@ -1115,14 +1115,14 @@ Status DBImpl::Get(const ReadOptions& options,
   if (options.snapshot != NULL) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
   } else {
-    snapshot = versions_->LastSequence();
+    snapshot = versions_->LastSequence();   // 没传读最新的数据
   }
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
   Version* current = versions_->current();
   mem->Ref();
-  if (imm != NULL) imm->Ref();
+  if (imm != NULL) imm->Ref();   // 迭代过程中不能释放
   current->Ref();
 
   bool have_stat_update = false;
@@ -1138,7 +1138,7 @@ Status DBImpl::Get(const ReadOptions& options,
     } else if (imm != NULL && imm->Get(lkey, value, &s)) {
       // Done
     } else {
-      s = current->Get(options, lkey, value, &stats);
+      s = current->Get(options, lkey, value, &stats);   // 在当前版本找snapshot对应的key
       have_stat_update = true;
     }
     mutex_.Lock();
@@ -1367,7 +1367,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
-      imm_ = mem_;
+      imm_ = mem_;    // 当前mem 写满
       has_imm_.Release_Store(imm_);
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();

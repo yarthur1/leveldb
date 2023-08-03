@@ -23,12 +23,12 @@ struct TableBuilder::Rep {
   WritableFile* file;
   uint64_t offset;
   Status status;
-  BlockBuilder data_block;
-  BlockBuilder index_block;
+  BlockBuilder data_block;   // k->v
+  BlockBuilder index_block;  // 数据块索引  pending_handle k->offset+size
   std::string last_key;
   int64_t num_entries;
   bool closed;          // Either Finish() or Abandon() has been called.
-  FilterBlockBuilder* filter_block;
+  FilterBlockBuilder* filter_block;  // 布隆过滤器
 
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
@@ -39,7 +39,7 @@ struct TableBuilder::Rep {
   // blocks.
   //
   // Invariant: r->pending_index_entry is true only if data_block is empty.
-  bool pending_index_entry;
+  bool pending_index_entry;  // 数据块为空的时候插入上一个数据块的索引信息  key->offset+size
   BlockHandle pending_handle;  // Handle to add to index block
 
   std::string compressed_output;
@@ -56,7 +56,7 @@ struct TableBuilder::Rep {
         filter_block(opt.filter_policy == NULL ? NULL
                      : new FilterBlockBuilder(opt.filter_policy)),
         pending_index_entry(false) {
-    index_block_options.block_restart_interval = 1;
+    index_block_options.block_restart_interval = 1;  // key不要restart point
   }
 };
 
@@ -99,20 +99,20 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
-    r->options.comparator->FindShortestSeparator(&r->last_key, key);
+    r->options.comparator->FindShortestSeparator(&r->last_key, key);   // // r->last_key用作定位标记 kValueTypeForSeek
     std::string handle_encoding;
-    r->pending_handle.EncodeTo(&handle_encoding);
-    r->index_block.Add(r->last_key, Slice(handle_encoding));
+    r->pending_handle.EncodeTo(&handle_encoding);   // 初始为空,后续为上一个数据块的offset+size
+    r->index_block.Add(r->last_key, Slice(handle_encoding));  // 用block最大的key标记block
     r->pending_index_entry = false;
   }
 
   if (r->filter_block != NULL) {
-    r->filter_block->AddKey(key);
+    r->filter_block->AddKey(key);  // 布隆过滤器
   }
 
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
-  r->data_block.Add(key, value);
+  r->data_block.Add(key, value);   // 先索引块，布隆，最后才是数据块
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
   if (estimated_block_size >= r->options.block_size) {
@@ -120,7 +120,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 }
 
-void TableBuilder::Flush() {
+void TableBuilder::Flush() {  // 写数据块
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -128,7 +128,7 @@ void TableBuilder::Flush() {
   assert(!r->pending_index_entry);
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
-    r->pending_index_entry = true;
+    r->pending_index_entry = true;  // 标记
     r->status = r->file->Flush();
   }
   if (r->filter_block != NULL) {
@@ -143,7 +143,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   //    crc: uint32
   assert(ok());
   Rep* r = rep_;
-  Slice raw = block->Finish();
+  Slice raw = block->Finish();  // block的数据
 
   Slice block_contents;
   CompressionType type = r->options.compression;
@@ -176,8 +176,8 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type,
                                  BlockHandle* handle) {
   Rep* r = rep_;
-  handle->set_offset(r->offset);
-  handle->set_size(block_contents.size());
+  handle->set_offset(r->offset);   // 当前的offset
+  handle->set_size(block_contents.size());  // size不包含crc
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
@@ -187,7 +187,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
     EncodeFixed32(trailer+1, crc32c::Mask(crc));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
-      r->offset += block_contents.size() + kBlockTrailerSize;
+      r->offset += block_contents.size() + kBlockTrailerSize;  // offset包含trailer
     }
   }
 }
@@ -196,7 +196,7 @@ Status TableBuilder::status() const {
   return rep_->status;
 }
 
-Status TableBuilder::Finish() {
+Status TableBuilder::Finish() {  // 写sstable文件
   Rep* r = rep_;
   Flush();
   assert(!r->closed);
@@ -219,7 +219,7 @@ Status TableBuilder::Finish() {
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
       filter_block_handle.EncodeTo(&handle_encoding);
-      meta_index_block.Add(key, handle_encoding);
+      meta_index_block.Add(key, handle_encoding);  // 布隆过滤器name->offset和size
     }
 
     // TODO(postrelease): Add stats and other meta blocks
@@ -232,7 +232,7 @@ Status TableBuilder::Finish() {
       r->options.comparator->FindShortSuccessor(&r->last_key);
       std::string handle_encoding;
       r->pending_handle.EncodeTo(&handle_encoding);
-      r->index_block.Add(r->last_key, Slice(handle_encoding));
+      r->index_block.Add(r->last_key, Slice(handle_encoding));  // key -> offset+size
       r->pending_index_entry = false;
     }
     WriteBlock(&r->index_block, &index_block_handle);

@@ -32,7 +32,7 @@ class BloomFilterPolicy : public FilterPolicy {
     return "leveldb.BuiltinBloomFilter2";
   }
 
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const {
+  virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const {   // 布隆过滤器
     // Compute bloom filter size (in both bits and bytes)
     size_t bits = n * bits_per_key_;
 

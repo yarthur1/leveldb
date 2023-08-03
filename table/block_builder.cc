@@ -60,7 +60,7 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
           sizeof(uint32_t));                      // Restart array length
 }
 
-Slice BlockBuilder::Finish() {
+Slice BlockBuilder::Finish() {  // append先是offset，然后是len
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
@@ -70,7 +70,7 @@ Slice BlockBuilder::Finish() {
   return Slice(buffer_);
 }
 
-void BlockBuilder::Add(const Slice& key, const Slice& value) {
+void BlockBuilder::Add(const Slice& key, const Slice& value) {   // block构建 key的具体存储格式
   Slice last_key_piece(last_key_);
   assert(!finished_);
   assert(counter_ <= options_->block_restart_interval);
@@ -85,7 +85,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     }
   } else {
     // Restart compression
-    restarts_.push_back(buffer_.size());
+    restarts_.push_back(buffer_.size());  // 当前buffer的size作为restart offset
     counter_ = 0;
   }
   const size_t non_shared = key.size() - shared;
