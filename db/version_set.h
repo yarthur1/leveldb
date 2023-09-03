@@ -61,7 +61,7 @@ class Version {
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
+  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);   // 内存表没有记录，先扫描内存表?
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
@@ -313,7 +313,7 @@ class VersionSet {
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
-  std::string compact_pointer_[config::kNumLevels];  // 版本切换后还没完成的level compaction如何处理
+  std::string compact_pointer_[config::kNumLevels];  // 版本切换后还没完成的level compaction如何处理,下一次压缩就是最新的版本之上
 
   // No copying allowed
   VersionSet(const VersionSet&);
@@ -370,7 +370,7 @@ class Compaction {
 
   int level_;
   uint64_t max_output_file_size_;
-  Version* input_version_;
+  Version* input_version_;  // 压缩都是取当前版本
   VersionEdit edit_;
 
   // Each compaction reads inputs from "level_" and "level_+1"

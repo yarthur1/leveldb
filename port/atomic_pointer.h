@@ -131,7 +131,7 @@ class AtomicPointer {
   explicit AtomicPointer(void* p) : rep_(p) {}
   inline void* NoBarrier_Load() const { return rep_; }
   inline void NoBarrier_Store(void* v) { rep_ = v; }
-  inline void* Acquire_Load() const {
+  inline void* Acquire_Load() const {    // 内存屏障不放在读取之前吗?
     void* result = rep_;
     MemoryBarrier();
     return result;
@@ -154,7 +154,7 @@ class AtomicPointer {
     return rep_.load(std::memory_order_acquire);
   }
   inline void Release_Store(void* v) {
-    rep_.store(v, std::memory_order_release);
+    rep_.store(v, std::memory_order_release);    // 能保证修改了立即可见吗？？？
   }
   inline void* NoBarrier_Load() const {
     return rep_.load(std::memory_order_relaxed);

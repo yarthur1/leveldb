@@ -25,12 +25,12 @@ struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) { }
 };
 
-class VersionEdit {
+class VersionEdit {   // 记录compaction pointer,add file ,del file,file num信息
  public:
   VersionEdit() { Clear(); }
   ~VersionEdit() { }
 
-  void Clear();
+  void Clear();  // compact_pointers_没有clear
 
   void SetComparatorName(const Slice& name) {
     has_comparator_ = true;
@@ -98,8 +98,8 @@ class VersionEdit {
   bool has_last_sequence_;
 
   std::vector< std::pair<int, InternalKey> > compact_pointers_;
-  DeletedFileSet deleted_files_;
-  std::vector< std::pair<int, FileMetaData> > new_files_;
+  DeletedFileSet deleted_files_;        /// level->Filenum
+  std::vector< std::pair<int, FileMetaData> > new_files_;   /// level->FileMetaData
 };
 
 }  // namespace leveldb

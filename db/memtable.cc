@@ -21,7 +21,7 @@ static Slice GetLengthPrefixedSlice(const char* data) {
 MemTable::MemTable(const InternalKeyComparator& cmp)
     : comparator_(cmp),
       refs_(0),
-      table_(comparator_, &arena_) {
+      table_(comparator_, &arena_) {    // skiplist table如何比较
 }
 
 MemTable::~MemTable() {
@@ -61,13 +61,13 @@ class MemTableIterator: public Iterator {
   virtual Slice key() const { return GetLengthPrefixedSlice(iter_.key()); }
   virtual Slice value() const {
     Slice key_slice = GetLengthPrefixedSlice(iter_.key());
-    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+    return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());   //  GetLengthPrefixedSlice不是new内存返回的，val地址任然有效!!!!
   }
 
   virtual Status status() const { return Status::OK(); }
 
  private:
-  MemTable::Table::Iterator iter_;
+  MemTable::Table::Iterator iter_;   // skiplist迭代器
   std::string tmp_;       // For passing to EncodeKey
 
   // No copying allowed
@@ -102,13 +102,13 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((p + val_size) - buf == encoded_len);
-  table_.Insert(buf);
+  table_.Insert(buf);   // 编码成字符串插入跳跃表 len+k+len+v
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
-  Slice memkey = key.memtable_key();
+  Slice memkey = key.memtable_key();   // 包含长度的interkey
   Table::Iterator iter(&table_);
-  iter.Seek(memkey.data());
+  iter.Seek(memkey.data());   // 直接定位
   if (iter.Valid()) {
     // entry format is:
     //    klength  varint32
@@ -124,7 +124,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
     const char* key_ptr = GetVarint32Ptr(entry, entry+5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
             Slice(key_ptr, key_length - 8),
-            key.user_key()) == 0) {
+            key.user_key()) == 0) {   // check
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {

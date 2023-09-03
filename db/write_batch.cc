@@ -39,7 +39,7 @@ void WriteBatch::Clear() {
   rep_.resize(kHeader);
 }
 
-Status WriteBatch::Iterate(Handler* handler) const {
+Status WriteBatch::Iterate(Handler* handler) const {  // 将writebatch的值放到handle
   Slice input(rep_);
   if (input.size() < kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
@@ -87,7 +87,7 @@ void WriteBatchInternal::SetCount(WriteBatch* b, int n) {
   EncodeFixed32(&b->rep_[8], n);
 }
 
-SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {
+SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {   // 先是sequence,然后是count
   return SequenceNumber(DecodeFixed64(b->rep_.data()));
 }
 
@@ -126,7 +126,7 @@ class MemTableInserter : public WriteBatch::Handler {
 }  // namespace
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
-                                      MemTable* memtable) {
+                                      MemTable* memtable) {   // 插入memtable
   MemTableInserter inserter;
   inserter.sequence_ = WriteBatchInternal::Sequence(b);
   inserter.mem_ = memtable;

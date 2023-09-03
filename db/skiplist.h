@@ -11,7 +11,7 @@
 // Writes require external synchronization, most likely a mutex.
 // Reads require a guarantee that the SkipList will not be destroyed
 // while the read is in progress.  Apart from that, reads progress
-// without any internal locking or synchronization.
+// without any internal locking or synchronization.    // 怎么做到的, 内存屏障
 //
 // Invariants:
 //
@@ -19,10 +19,10 @@
 // destroyed.  This is trivially guaranteed by the code since we
 // never delete any skip list nodes.
 //
-// (2) The contents of a Node except for the next/prev pointers are
+// (2) The contents of a Node except for the next/prev pointers are     // 只有指针改变了
 // immutable after the Node has been linked into the SkipList.
 // Only Insert() modifies the list, and it is careful to initialize
-// a node and use release-stores to publish the nodes in one or
+// a node and use release-stores to publish the nodes in one or       // 使用原子操作或者内存屏障
 // more lists.
 //
 // ... prev vs. next pointer ordering ...
@@ -53,7 +53,7 @@ class SkipList {
   void Insert(const Key& key);
 
   // Returns true iff an entry that compares equal to key is in the list.
-  bool Contains(const Key& key) const;
+  bool Contains(const Key& key) const;   // 插入即可见
 
   // Iteration over the contents of a skip list
   class Iterator {
@@ -107,7 +107,7 @@ class SkipList {
   // values are ok.
   port::AtomicPointer max_height_;   // Height of the entire list
 
-  inline int GetMaxHeight() const {
+  inline int GetMaxHeight() const {   // 没有内存屏障,能保证原子性,不一定是最新的高度,高度为老值无影响
     return static_cast<int>(
         reinterpret_cast<intptr_t>(max_height_.NoBarrier_Load()));
   }
@@ -155,7 +155,7 @@ struct SkipList<Key,Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return reinterpret_cast<Node*>(next_[n].Acquire_Load());
+    return reinterpret_cast<Node*>(next_[n].Acquire_Load());   // 修改即可见，不会有数组越界的报错
   }
   void SetNext(int n, Node* x) {
     assert(n >= 0);
@@ -176,7 +176,7 @@ struct SkipList<Key,Comparator>::Node {
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
-  port::AtomicPointer next_[1];
+  port::AtomicPointer next_[1];   // 存放node指针
 };
 
 template<typename Key, class Comparator>
@@ -262,16 +262,16 @@ template<typename Key, class Comparator>
 typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOrEqual(const Key& key, Node** prev)
     const {
   Node* x = head_;
-  int level = GetMaxHeight() - 1;
+  int level = GetMaxHeight() - 1;  // 当前最大高度,高度不准确有影响吗，对prev的结果有影响，只有Insert才会使用prev
   while (true) {
     Node* next = x->Next(level);
     if (KeyIsAfterNode(key, next)) {
       // Keep searching in this list
       x = next;
     } else {
-      if (prev != NULL) prev[level] = x;
+      if (prev != NULL) prev[level] = x;   // 单向链表，记录插入位置的前一个节点
       if (level == 0) {
-        return next;
+        return next;   // 返回的是next节点，0层第一个>=key的节点，应该在这个节点之前插入
       } else {
         // Switch to next list
         level--;
@@ -282,7 +282,7 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOr
 
 template<typename Key, class Comparator>
 typename SkipList<Key,Comparator>::Node*
-SkipList<Key,Comparator>::FindLessThan(const Key& key) const {
+SkipList<Key,Comparator>::FindLessThan(const Key& key) const {  // 返回最后一个<key的节点
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
@@ -325,7 +325,7 @@ template<typename Key, class Comparator>
 SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
     : compare_(cmp),
       arena_(arena),
-      head_(NewNode(0 /* any key will do */, kMaxHeight)),
+      head_(NewNode(0 /* any key will do */, kMaxHeight)),  // head有最高的层数
       max_height_(reinterpret_cast<void*>(1)),
       rnd_(0xdeadbeef) {
   for (int i = 0; i < kMaxHeight; i++) {
@@ -357,21 +357,21 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
     // the loop below.  In the former case the reader will
     // immediately drop to the next level since NULL sorts after all
     // keys.  In the latter case the reader will use the new node.
-    max_height_.NoBarrier_Store(reinterpret_cast<void*>(height));
+    max_height_.NoBarrier_Store(reinterpret_cast<void*>(height));  // ?
   }
 
   x = NewNode(key, height);
-  for (int i = 0; i < height; i++) {
+  for (int i = 0; i < height; i++) {   ///  prev代表当前节点每一层的前一个节点
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
-    x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
-    prev[i]->SetNext(i, x);
+    x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));   // 没有地方会修改prev next指针
+    prev[i]->SetNext(i, x);   // release store,有其他地方读，所以用屏障
   }
 }
 
 template<typename Key, class Comparator>
 bool SkipList<Key,Comparator>::Contains(const Key& key) const {
-  Node* x = FindGreaterOrEqual(key, NULL);
+  Node* x = FindGreaterOrEqual(key, NULL);  // 0层第一个>=的节点
   if (x != NULL && Equal(key, x->key)) {
     return true;
   } else {

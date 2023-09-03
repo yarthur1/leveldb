@@ -49,7 +49,7 @@ class WriteBatch {
     virtual void Put(const Slice& key, const Slice& value) = 0;
     virtual void Delete(const Slice& key) = 0;
   };
-  Status Iterate(Handler* handler) const;
+  Status Iterate(Handler* handler) const;  // 将writebatch的值放到handle
 
  private:
   friend class WriteBatchInternal;

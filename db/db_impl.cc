@@ -215,7 +215,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
-void DBImpl::DeleteObsoleteFiles() {
+void DBImpl::DeleteObsoleteFiles() {    // 删掉过期文件
   if (!bg_error_.ok()) {
     // After a background error, we don't know whether a new version may
     // or may not have been committed, so we cannot safely garbage collect.
@@ -235,7 +235,7 @@ void DBImpl::DeleteObsoleteFiles() {
       bool keep = true;
       switch (type) {
         case kLogFile:
-          keep = ((number >= versions_->LogNumber()) ||
+          keep = ((number >= versions_->LogNumber()) ||    // 在lognum之前的都可以删掉，除了prevlog
                   (number == versions_->PrevLogNumber()));
           break;
         case kDescriptorFile:
@@ -286,7 +286,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
 
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
-      s = NewDB();
+      s = NewDB();  // new一个
       if (!s.ok()) {
         return s;
       }
@@ -301,7 +301,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
     }
   }
 
-  s = versions_->Recover(save_manifest);
+  s = versions_->Recover(save_manifest);  // 获取manifest记录的版本元信息等
   if (!s.ok()) {
     return s;
   }
@@ -322,18 +322,18 @@ Status DBImpl::Recover(VersionEdit* edit, bool *save_manifest) {
     return s;
   }
   std::set<uint64_t> expected;
-  versions_->AddLiveFiles(&expected);
+  versions_->AddLiveFiles(&expected);  // 获取所有版本所有层的file_num
   uint64_t number;
   FileType type;
   std::vector<uint64_t> logs;
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       expected.erase(number);
-      if (type == kLogFile && ((number >= min_log) || (number == prev_log)))
-        logs.push_back(number);
+      if (type == kLogFile && ((number >= min_log) || (number == prev_log)))  // log日志文件如何生成的
+        logs.push_back(number);  // 需要恢复的log文件? 最多只有两个，min_log和min_log+1
     }
   }
-  if (!expected.empty()) {
+  if (!expected.empty()) {  // 文件不全
     char buf[50];
     snprintf(buf, sizeof(buf), "%d missing files; e.g.",
              static_cast<int>(expected.size()));
@@ -486,11 +486,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 }
 
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
-                                Version* base) {
+                                Version* base) {  // current version上的修改,只记录了新生成的文件
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.number = versions_->NewFileNumber();
+  meta.number = versions_->NewFileNumber();   //  新的filenum
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
@@ -531,7 +531,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   return s;
 }
 
-void DBImpl::CompactMemTable() {
+void DBImpl::CompactMemTable() {  // 压缩之前已经修改了logfile_number_
   mutex_.AssertHeld();
   assert(imm_ != NULL);
 
@@ -539,7 +539,7 @@ void DBImpl::CompactMemTable() {
   VersionEdit edit;
   Version* base = versions_->current();
   base->Ref();
-  Status s = WriteLevel0Table(imm_, &edit, base);  //  minor compaction
+  Status s = WriteLevel0Table(imm_, &edit, base);  //  minor compaction 版本的变更只有新加的文件
   base->Unref();
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
@@ -548,7 +548,7 @@ void DBImpl::CompactMemTable() {
 
   // Replace immutable memtable with the generated Table
   if (s.ok()) {
-    edit.SetPrevLogNumber(0);
+    edit.SetPrevLogNumber(0);  // ?
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
     s = versions_->LogAndApply(&edit, &mutex_);
   }
@@ -1211,7 +1211,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && my_batch != NULL) {  // NULL batch is for compactions
-    WriteBatch* updates = BuildBatchGroup(&last_writer);
+    WriteBatch* updates = BuildBatchGroup(&last_writer);   //  将batch放入tmp中并返回
     WriteBatchInternal::SetSequence(updates, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(updates);
 
@@ -1240,7 +1240,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         RecordBackgroundError(status);
       }
     }
-    if (updates == tmp_batch_) tmp_batch_->Clear();
+    if (updates == tmp_batch_) tmp_batch_->Clear();  // 清理tmp
 
     versions_->SetLastSequence(last_sequence);
   }
@@ -1251,7 +1251,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     if (ready != &w) {
       ready->status = status;
       ready->done = true;
-      ready->cv.Signal();
+      ready->cv.Signal();   // 通知直到last_writer
     }
     if (ready == last_writer) break;
   }
@@ -1303,7 +1303,7 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
       if (result == first->batch) {
         // Switch to temporary batch instead of disturbing caller's batch
         result = tmp_batch_;
-        assert(WriteBatchInternal::Count(result) == 0);
+        assert(WriteBatchInternal::Count(result) == 0);  // 将batch都放入到tmp_中去
         WriteBatchInternal::Append(result, first->batch);
       }
       WriteBatchInternal::Append(result, w->batch);
@@ -1315,7 +1315,7 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::MakeRoomForWrite(bool force) {
+Status DBImpl::MakeRoomForWrite(bool force) {   // force=true表示compaction
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
@@ -1342,7 +1342,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
       // There is room in current memtable
       break;
-    } else if (imm_ != NULL) {
+    } else if (imm_ != NULL) {  // 不允许出现多个immu table
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
@@ -1353,8 +1353,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       bg_cv_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
-      assert(versions_->PrevLogNumber() == 0);
-      uint64_t new_log_number = versions_->NewFileNumber();
+      assert(versions_->PrevLogNumber() == 0);   // DBImpl::CompactMemTable() prelog压缩完后会设置为0
+      uint64_t new_log_number = versions_->NewFileNumber();  // 返回然后自增
       WritableFile* lfile = NULL;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
@@ -1366,7 +1366,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       delete logfile_;
       logfile_ = lfile;
       logfile_number_ = new_log_number;
-      log_ = new log::Writer(lfile);
+      log_ = new log::Writer(lfile);   // new WAL
       imm_ = mem_;    // 当前mem 写满
       has_imm_.Release_Store(imm_);
       mem_ = new MemTable(internal_comparator_);
@@ -1496,7 +1496,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   VersionEdit edit;
   // Recover handles create_if_missing, error_if_exists
   bool save_manifest = false;
-  Status s = impl->Recover(&edit, &save_manifest);
+  Status s = impl->Recover(&edit, &save_manifest);   // ??
   if (s.ok() && impl->mem_ == NULL) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
@@ -1504,7 +1504,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile);
     if (s.ok()) {
-      edit.SetLogNumber(new_log_number);
+      edit.SetLogNumber(new_log_number);   // 以file_num作为log_num
       impl->logfile_ = lfile;
       impl->logfile_number_ = new_log_number;
       impl->log_ = new log::Writer(lfile);

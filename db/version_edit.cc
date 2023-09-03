@@ -87,7 +87,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
 
 static bool GetInternalKey(Slice* input, InternalKey* dst) {
   Slice str;
-  if (GetLengthPrefixedSlice(input, &str)) {
+  if (GetLengthPrefixedSlice(input, &str)) {   // input的data指针在改变
     dst->DecodeFrom(str);
     return true;
   } else {

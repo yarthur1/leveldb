@@ -195,7 +195,7 @@ class LookupKey {
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
-  Slice memtable_key() const { return Slice(start_, end_ - start_); }
+  Slice memtable_key() const { return Slice(start_, end_ - start_); }   // 包含长度
 
   // Return an internal key (suitable for passing to an internal iterator)
   Slice internal_key() const { return Slice(kstart_, end_ - kstart_); }

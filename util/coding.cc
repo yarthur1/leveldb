@@ -181,10 +181,10 @@ const char* GetLengthPrefixedSlice(const char* p, const char* limit,
 
 bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   uint32_t len;
-  if (GetVarint32(input, &len) &&
+  if (GetVarint32(input, &len) &&  // 将input修改到len之后的位置
       input->size() >= len) {
     *result = Slice(input->data(), len);
-    input->remove_prefix(len);
+    input->remove_prefix(len);  // input继续后移
     return true;
   } else {
     return false;
