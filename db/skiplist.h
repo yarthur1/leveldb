@@ -100,7 +100,7 @@ class SkipList {
   enum { kMaxHeight = 12 };
 
   inline int GetMaxHeight() const {
-    return max_height_.load(std::memory_order_relaxed);
+    return max_height_.load(std::memory_order_relaxed);   // 有可能读到老值?
   }
 
   Node* NewNode(const Key& key, int height);
@@ -152,7 +152,7 @@ struct SkipList<Key, Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return next_[n].load(std::memory_order_acquire);
+    return next_[n].load(std::memory_order_acquire);   // 修改立马可见？
   }
   void SetNext(int n, Node* x) {
     assert(n >= 0);
