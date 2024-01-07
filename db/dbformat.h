@@ -99,12 +99,12 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
 
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
-class InternalKeyComparator : public Comparator {
+class InternalKeyComparator : public Comparator {  // 先按用户compare比较，序列号降序
  private:
   const Comparator* user_comparator_;
 
  public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}   // 默认user_comparator_为BytewiseComparatorImpl类型
   const char* Name() const override;
   int Compare(const Slice& a, const Slice& b) const override;
   void FindShortestSeparator(std::string* start,

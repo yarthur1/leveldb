@@ -29,7 +29,7 @@ int MemTable::KeyComparator::operator()(const char* aptr,
                                         const char* bptr) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(aptr);
-  Slice b = GetLengthPrefixedSlice(bptr);
+  Slice b = GetLengthPrefixedSlice(bptr);   // 只获取key的部分
   return comparator.Compare(a, b);
 }
 
@@ -84,7 +84,7 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   size_t key_size = key.size();
   size_t val_size = value.size();
   size_t internal_key_size = key_size + 8;
-  const size_t encoded_len = VarintLength(internal_key_size) +
+  const size_t encoded_len = VarintLength(internal_key_size) +   // 存放长度需要的字节数
                              internal_key_size + VarintLength(val_size) +
                              val_size;
   char* buf = arena_.Allocate(encoded_len);
@@ -96,12 +96,12 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
   p = EncodeVarint32(p, val_size);
   std::memcpy(p, value.data(), val_size);
   assert(p + val_size == buf + encoded_len);
-  table_.Insert(buf);
+  table_.Insert(buf);   // len+key+len+val 插入skiplist
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
-  Slice memkey = key.memtable_key();
-  Table::Iterator iter(&table_);
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {   // LookupKey包含长度的interkey
+  Slice memkey = key.memtable_key();   // 包含长度
+  Table::Iterator iter(&table_);   // skiplist的内部迭代器
   iter.Seek(memkey.data());
   if (iter.Valid()) {
     // entry format is:

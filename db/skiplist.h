@@ -250,9 +250,9 @@ int SkipList<Key, Comparator>::RandomHeight() {
 }
 
 template <typename Key, class Comparator>
-bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
+bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {  // 插入时len+key+len+value,查找时len+key
   // null n is considered infinite
-  return (n != nullptr) && (compare_(n->key, key) < 0);
+  return (n != nullptr) && (compare_(n->key, key) < 0);   // 默认用户比较函数Slice::compare，从左到右进行比较，先提取用户key进行比较升序，用户key相同序号降序
 }
 
 template <typename Key, class Comparator>

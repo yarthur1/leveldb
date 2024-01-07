@@ -68,8 +68,8 @@ class MemTable {
 
   struct KeyComparator {
     const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
-    int operator()(const char* a, const char* b) const;
+    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}  // 传递的InternalKeyComparator
+    int operator()(const char* a, const char* b) const;   // 重载
   };
 
   typedef SkipList<const char*, KeyComparator> Table;

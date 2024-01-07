@@ -699,7 +699,7 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
-void DBImpl::BackgroundCompaction() {
+void DBImpl::BackgroundCompaction() {   // 压缩入口
   mutex_.AssertHeld();
 
   if (imm_ != nullptr) {
@@ -1121,7 +1121,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     snapshot =
         static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
   } else {
-    snapshot = versions_->LastSequence();
+    snapshot = versions_->LastSequence();   // 最大的序号
   }
 
   MemTable* mem = mem_;
@@ -1227,7 +1227,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
-      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
+      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));  /// 如果status不ok
       bool sync_error = false;
       if (status.ok() && options.sync) {
         status = logfile_->Sync();
@@ -1236,7 +1236,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
         }
       }
       if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(write_batch, mem_);
+        status = WriteBatchInternal::InsertInto(write_batch, mem_);   // 突然宕机,重启后从WAL恢复
       }
       mutex_.Lock();
       if (sync_error) {
