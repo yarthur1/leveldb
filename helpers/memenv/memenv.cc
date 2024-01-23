@@ -49,7 +49,7 @@ class FileState {
 
   uint64_t Size() const { return size_; }
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {  // 从内存中copy
     if (offset > size_) {
       return Status::IOError("Offset greater than file size.");
     }

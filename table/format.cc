@@ -65,7 +65,7 @@ Status Footer::DecodeFrom(Slice* input) {
 Status ReadBlock(RandomAccessFile* file,
                  const ReadOptions& options,
                  const BlockHandle& handle,
-                 BlockContents* result) {
+                 BlockContents* result) {   // 读数据块
   result->data = Slice();
   result->cachable = false;
   result->heap_allocated = false;

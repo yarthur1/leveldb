@@ -47,7 +47,7 @@ Status Table::Open(const Options& options,
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
   Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
-                        &footer_input, footer_space);
+                        &footer_input, footer_space);  // read footer
   if (!s.ok()) return s;
 
   Footer footer;
@@ -62,7 +62,7 @@ Status Table::Open(const Options& options,
     if (options.paranoid_checks) {
       opt.verify_checksums = true;
     }
-    s = ReadBlock(file, opt, footer.index_handle(), &contents);
+    s = ReadBlock(file, opt, footer.index_handle(), &contents);   // ??索引块
     if (s.ok()) {
       index_block = new Block(contents);
     }
@@ -80,7 +80,7 @@ Status Table::Open(const Options& options,
     rep->filter_data = NULL;
     rep->filter = NULL;
     *table = new Table(rep);
-    (*table)->ReadMeta(footer);
+    (*table)->ReadMeta(footer);   //
   } else {
     delete index_block;
   }
@@ -235,13 +235,13 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
     BlockHandle handle;
     if (filter != NULL &&
         handle.DecodeFrom(&handle_value).ok() &&
-        !filter->KeyMayMatch(handle.offset(), k)) {
+        !filter->KeyMayMatch(handle.offset(), k)) {  // 布隆过滤器不存在则肯定不存在
       // Not found
     } else {
-      Iterator* block_iter = BlockReader(this, options, iiter->value());
+      Iterator* block_iter = BlockReader(this, options, iiter->value());   // 读具体的块
       block_iter->Seek(k);
       if (block_iter->Valid()) {
-        (*saver)(arg, block_iter->key(), block_iter->value());
+        (*saver)(arg, block_iter->key(), block_iter->value());  // 调用回调处理获取的k-v
       }
       s = block_iter->status();
       delete block_iter;

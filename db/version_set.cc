@@ -405,7 +405,7 @@ Status Version::Get(const ReadOptions& options,
       saver.ucmp = ucmp;
       saver.user_key = user_key;
       saver.value = value;
-      s = vset_->table_cache_->Get(options, f->number, f->file_size,   ///  都是从cache里面查找?
+      s = vset_->table_cache_->Get(options, f->number, f->file_size,   ///  都是从cache里面查找
                                    ikey, &saver, SaveValue);
       if (!s.ok()) {
         return s;

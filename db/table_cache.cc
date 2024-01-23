@@ -53,7 +53,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = NULL;
     Table* table = NULL;
-    s = env_->NewRandomAccessFile(fname, &file);
+    s = env_->NewRandomAccessFile(fname, &file);  // file存放new RandomAccessFile对象
     if (!s.ok()) {
       std::string old_fname = SSTTableFileName(dbname_, file_number);
       if (env_->NewRandomAccessFile(old_fname, &file).ok()) {
@@ -109,10 +109,10 @@ Status TableCache::Get(const ReadOptions& options,
                        void* arg,
                        void (*saver)(void*, const Slice&, const Slice&)) {
   Cache::Handle* handle = NULL;
-  Status s = FindTable(file_number, file_size, &handle);
+  Status s = FindTable(file_number, file_size, &handle);  // 不在缓存会注册到缓存，读了meta信息
   if (s.ok()) {
     Table* t = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
-    s = t->InternalGet(options, k, arg, saver);
+    s = t->InternalGet(options, k, arg, saver);   // 读具体的数据
     cache_->Release(handle);
   }
   return s;

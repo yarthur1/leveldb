@@ -101,7 +101,7 @@ class PosixSequentialFile: public SequentialFile {
 
   virtual Status Read(size_t n, Slice* result, char* scratch) {
     Status s;
-    size_t r = fread_unlocked(scratch, 1, n, file_);
+    size_t r = fread_unlocked(scratch, 1, n, file_);  // fread stdio.h中的接口
     *result = Slice(scratch, r);
     if (r < n) {
       if (feof(file_)) {
@@ -159,7 +159,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
     }
 
     Status s;
-    ssize_t r = pread(fd, scratch, n, static_cast<off_t>(offset));
+    ssize_t r = pread(fd, scratch, n, static_cast<off_t>(offset));  // pread pwrite 指定offset读写，不会影响文件offset
     *result = Slice(scratch, (r < 0) ? 0 : r);
     if (r < 0) {
       // An error: return a non-ok status
@@ -207,7 +207,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
   }
 };
 
-class PosixWritableFile : public WritableFile {
+class PosixWritableFile : public WritableFile {   // 使用在哪
  private:
   std::string filename_;
   FILE* file_;
@@ -249,7 +249,7 @@ class PosixWritableFile : public WritableFile {
 
   Status SyncDirIfManifest() {
     const char* f = filename_.c_str();
-    const char* sep = strrchr(f, '/');
+    const char* sep = strrchr(f, '/');  // 字符最后一次出现的位置
     Slice basename;
     std::string dir;
     if (sep == NULL) {
@@ -257,7 +257,7 @@ class PosixWritableFile : public WritableFile {
       basename = f;
     } else {
       dir = std::string(f, sep - f);
-      basename = sep + 1;
+      basename = sep + 1;   // 文件名
     }
     Status s;
     if (basename.starts_with("MANIFEST")) {
@@ -265,7 +265,7 @@ class PosixWritableFile : public WritableFile {
       if (fd < 0) {
         s = IOError(dir, errno);
       } else {
-        if (fsync(fd) < 0) {
+        if (fsync(fd) < 0) {   // fsync dir fd，只flush目录自身的数据
           s = IOError(dir, errno);
         }
         close(fd);
@@ -280,8 +280,8 @@ class PosixWritableFile : public WritableFile {
     if (!s.ok()) {
       return s;
     }
-    if (fflush_unlocked(file_) != 0 ||
-        fdatasync(fileno(file_)) != 0) {
+    if (fflush_unlocked(file_) != 0 ||   // flush stream buffer
+        fdatasync(fileno(file_)) != 0) {   // data sync
       s = Status::IOError(filename_, strerror(errno));
     }
     return s;
@@ -362,7 +362,7 @@ class PosixEnv : public Env {
           s = IOError(fname, errno);
         }
       }
-      close(fd);
+      close(fd);  // mmap后可以close 只有munmap才会释放
       if (!s.ok()) {
         mmap_limit_.Release();
       }
@@ -587,7 +587,7 @@ static intptr_t MaxOpenFiles() {
     return open_read_only_file_limit;
   }
   struct rlimit rlim;
-  if (getrlimit(RLIMIT_NOFILE, &rlim)) {
+  if (getrlimit(RLIMIT_NOFILE, &rlim)) {  // 进程可打开的最大文件描述符
     // getrlimit failed, fallback to hard-coded default.
     open_read_only_file_limit = 50;
   } else if (rlim.rlim_cur == RLIM_INFINITY) {
