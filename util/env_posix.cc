@@ -36,6 +36,8 @@
 #include "util/env_posix_test_helper.h"
 #include "util/posix_logger.h"
 
+#include <photon/fs/localfs.h>
+
 namespace leveldb {
 
 namespace {
@@ -177,39 +179,47 @@ class PosixRandomAccessFile final : public RandomAccessFile {
  public:
   // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
   // instance, and will be used to determine if .
-  PosixRandomAccessFile(std::string filename, int fd, Limiter* fd_limiter)
+  PosixRandomAccessFile(std::string filename, Limiter* fd_limiter)
       : has_permanent_fd_(fd_limiter->Acquire()),
-        fd_(has_permanent_fd_ ? fd : -1),
+        // fd_(has_permanent_fd_ ? fd : -1),
         fd_limiter_(fd_limiter),
         filename_(std::move(filename)) {
-    if (!has_permanent_fd_) {
-      assert(fd_ == -1);
-      ::close(fd);  // The file will be opened on every read.
+    if (has_permanent_fd_) {
+      // assert(fd_ == -1);
+      // ::close(fd);  // The file will be opened on every read.
+      int flags = O_RDONLY;
+      auto src_engine = photon::fs::ioengine_iouring;
+      src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
     }
   }
 
   ~PosixRandomAccessFile() override {
     if (has_permanent_fd_) {
-      assert(fd_ != -1);
-      ::close(fd_);
+      // assert(fd_ != -1);
+      // ::close(fd_);
+      delete src_file;
       fd_limiter_->Release();
     }
   }
 
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
-    int fd = fd_;
+    // int fd = fd_;
     if (!has_permanent_fd_) {
-      fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
-      if (fd < 0) {
+      int flags = O_RDONLY;
+      auto src_engine = photon::fs::ioengine_iouring;
+      src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
+      // fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
+      if (src_file == nullptr) {
         return PosixError(filename_, errno);
       }
     }
-
-    assert(fd != -1);
+    assert(src_file != nullptr);
+    // assert(fd != -1);
 
     Status status;
-    ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
+    // ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
+    ssize_t read_size = src_file->pread(scratch, n, static_cast<off_t>(offset));
     *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
     if (read_size < 0) {
       // An error: return a non-ok status.
@@ -217,17 +227,20 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     }
     if (!has_permanent_fd_) {
       // Close the temporary file descriptor opened earlier.
-      assert(fd != fd_);
-      ::close(fd);
+      // assert(fd != fd_);
+      // ::close(fd);
+      delete src_file;
+      src_file = nullptr;
     }
     return status;
   }
 
  private:
   const bool has_permanent_fd_;  // If false, the file is opened on every read.
-  const int fd_;                 // -1 if has_permanent_fd_ is false.
+  // const int fd_;                 // -1 if has_permanent_fd_ is false.
   Limiter* const fd_limiter_;
   const std::string filename_;
+  photon::fs::IFile* src_file;
 };
 
 // Implements random read access in a file using mmap().
@@ -540,14 +553,14 @@ class PosixEnv : public Env {
   Status NewRandomAccessFile(const std::string& filename,
                              RandomAccessFile** result) override {
     *result = nullptr;
+
+    if (!mmap_limiter_.Acquire()) {
+      *result = new PosixRandomAccessFile(filename, &fd_limiter_);
+      return Status::OK();
+    }
     int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
     if (fd < 0) {
       return PosixError(filename, errno);
-    }
-
-    if (!mmap_limiter_.Acquire()) {
-      *result = new PosixRandomAccessFile(filename, fd, &fd_limiter_);
-      return Status::OK();
     }
 
     uint64_t file_size;
@@ -892,7 +905,7 @@ class SingletonEnv {
   }
 
  private:
-  typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type
+  typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type   // 内存对齐 std::aligned_storage
       env_storage_;
 #if !defined(NDEBUG)
   static std::atomic<bool> env_initialized_;

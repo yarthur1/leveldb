@@ -21,6 +21,8 @@
 #include "util/random.h"
 #include "util/testutil.h"
 
+#include "photon/photon.h"
+#include "photon/common/utility.h"
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
 //      fillseq       -- write N values in sequential key order in async mode
@@ -680,6 +682,12 @@ class Benchmark {
   };
 
   static void ThreadBody(void* v) {
+    int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+    if (ret < 0) {
+      std::fprintf(stderr, "failed to init photon environment\n");
+      std::exit(1);
+    }
+    DEFER(photon::fini());
     ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;
@@ -1124,6 +1132,12 @@ int main(int argc, char** argv) {
   }
 
   leveldb::g_env = leveldb::Env::Default();
+  int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+  if (ret < 0) {
+    std::fprintf(stderr, "failed to init photon environment\n");
+    std::exit(1);
+  }
+  DEFER(photon::fini());
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == nullptr) {
