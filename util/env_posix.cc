@@ -37,6 +37,8 @@
 #include "util/posix_logger.h"
 
 #include <photon/fs/localfs.h>
+#include "photon/photon.h"
+#include "photon/common/utility.h"
 
 namespace leveldb {
 
@@ -137,14 +139,19 @@ class Limiter {
 // by the SequentialFile API.
 class PosixSequentialFile final : public SequentialFile {
  public:
-  PosixSequentialFile(std::string filename, int fd)
-      : fd_(fd), filename_(std::move(filename)) {}
-  ~PosixSequentialFile() override { close(fd_); }
+  PosixSequentialFile(std::string filename, int flags)
+      :filename_(std::move(filename)) {
+        auto src_engine = photon::fs::ioengine_iouring;
+        src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
+        assert(src_file!=nullptr);
+        offset_ = 0;
+      }
+  ~PosixSequentialFile() override { delete src_file; }
 
   Status Read(size_t n, Slice* result, char* scratch) override {
     Status status;
     while (true) {
-      ::ssize_t read_size = ::read(fd_, scratch, n);
+      ::ssize_t read_size = src_file->pread(scratch, n, offset_);
       if (read_size < 0) {  // Read error.
         if (errno == EINTR) {
           continue;  // Retry
@@ -153,21 +160,27 @@ class PosixSequentialFile final : public SequentialFile {
         break;
       }
       *result = Slice(scratch, read_size);
+      offset_ += read_size;
       break;
     }
     return status;
   }
 
   Status Skip(uint64_t n) override {
-    if (::lseek(fd_, n, SEEK_CUR) == static_cast<off_t>(-1)) {
+    auto off = src_file->lseek(0, SEEK_END);
+    if (off == static_cast<off_t>(-1)) {
       return PosixError(filename_, errno);
     }
+    offset_ += n;
+    if (off>offset_) offset_ = off;
     return Status::OK();
   }
 
  private:
   const int fd_;
   const std::string filename_;
+  photon::fs::IFile* src_file;
+  off_t offset_;
 };
 
 // Implements random read access in a file using pread().
@@ -289,17 +302,23 @@ class PosixMmapReadableFile final : public RandomAccessFile {
 
 class PosixWritableFile final : public WritableFile {
  public:
-  PosixWritableFile(std::string filename, int fd)
+  PosixWritableFile(std::string filename, int flags)
       : pos_(0),
-        fd_(fd),
+        // fd_(fd),
         is_manifest_(IsManifest(filename)),
         filename_(std::move(filename)),
-        dirname_(Dirname(filename_)) {}
+        dirname_(Dirname(filename_)) {
+          auto src_engine = photon::fs::ioengine_iouring;
+          src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
+          assert(src_file!=nullptr);
+        }
 
   ~PosixWritableFile() override {
-    if (fd_ >= 0) {
+    if (src_file) {
       // Ignoring any potential errors
-      Close();
+      // Close();
+      FlushBuffer();
+      delete src_file;
     }
   }
 
@@ -359,8 +378,10 @@ class PosixWritableFile final : public WritableFile {
     if (!status.ok()) {
       return status;
     }
-
-    return SyncFd(fd_, filename_);
+    if (src_file->fsync()!=0)
+      return PosixError(filename_, errno);
+    return Status::OK();
+    // return SyncFd(fd_, filename_);
   }
 
  private:
@@ -372,7 +393,8 @@ class PosixWritableFile final : public WritableFile {
 
   Status WriteUnbuffered(const char* data, size_t size) {
     while (size > 0) {
-      ssize_t write_result = ::write(fd_, data, size);
+      ssize_t write_result = src_file->append(data, size);  // photon pread不好获取末尾offset
+      // ssize_t write_result = ::write(fd_, data, size);
       if (write_result < 0) {
         if (errno == EINTR) {
           continue;  // Retry
@@ -471,6 +493,7 @@ class PosixWritableFile final : public WritableFile {
   char buf_[kWritableFileBufferSize];
   size_t pos_;
   int fd_;
+  photon::fs::IFile* src_file;
 
   const bool is_manifest_;  // True if the file's name starts with MANIFEST.
   const std::string filename_;
@@ -537,16 +560,18 @@ class PosixEnv : public Env {
     std::fwrite(msg, 1, sizeof(msg), stderr);
     std::abort();
   }
-
+  // wal file
   Status NewSequentialFile(const std::string& filename,
                            SequentialFile** result) override {
-    int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
-    if (fd < 0) {
-      *result = nullptr;
+    // int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
+    // if (fd < 0) {
+    //   *result = nullptr;
+    //   return PosixError(filename, errno);
+    // }
+    int flags = O_RDONLY | kOpenBaseFlags;
+    *result = new PosixSequentialFile(filename, flags);
+    if (*result == nullptr)
       return PosixError(filename, errno);
-    }
-
-    *result = new PosixSequentialFile(filename, fd);
     return Status::OK();
   }
 
@@ -585,27 +610,31 @@ class PosixEnv : public Env {
 
   Status NewWritableFile(const std::string& filename,
                          WritableFile** result) override {
-    int fd = ::open(filename.c_str(),
-                    O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
-    if (fd < 0) {
-      *result = nullptr;
+    // int fd = ::open(filename.c_str(),
+    //                 O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    // if (fd < 0) {
+    //   *result = nullptr;
+    //   return PosixError(filename, errno);
+    // }
+    int flags = O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags;
+    *result = new PosixWritableFile(filename, flags);
+    if (*result == nullptr)
       return PosixError(filename, errno);
-    }
-
-    *result = new PosixWritableFile(filename, fd);
     return Status::OK();
   }
 
   Status NewAppendableFile(const std::string& filename,
                            WritableFile** result) override {
-    int fd = ::open(filename.c_str(),
-                    O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
-    if (fd < 0) {
-      *result = nullptr;
+    // int fd = ::open(filename.c_str(),
+    //                 O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    // if (fd < 0) {
+    //   *result = nullptr;
+    //   return PosixError(filename, errno);
+    // }
+    int flags = O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags;
+    *result = new PosixWritableFile(filename, flags);
+    if (*result == nullptr)
       return PosixError(filename, errno);
-    }
-
-    *result = new PosixWritableFile(filename, fd);
     return Status::OK();
   }
 
@@ -727,7 +756,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  Status NewLogger(const std::string& filename, Logger** result) override {
+  Status NewLogger(const std::string& filename, Logger** result) override {  // 业务日志
     int fd = ::open(filename.c_str(),
                     O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
@@ -824,7 +853,7 @@ PosixEnv::PosixEnv()
       mmap_limiter_(MaxMmaps()),
       fd_limiter_(MaxOpenFiles()) {}
 
-void PosixEnv::Schedule(
+void PosixEnv::Schedule(   // compaction后台线程?
     void (*background_work_function)(void* background_work_arg),
     void* background_work_arg) {
   background_work_mutex_.Lock();
@@ -845,7 +874,14 @@ void PosixEnv::Schedule(
   background_work_mutex_.Unlock();
 }
 
-void PosixEnv::BackgroundThreadMain() {
+void PosixEnv::BackgroundThreadMain() {  // 后台compaction线程
+  // init photon
+  int ret = photon::init(photon::INIT_EVENT_IOURING, photon::INIT_IO_NONE);
+  if (ret < 0) {
+    std::fprintf(stderr, "failed to init photon environment\n");
+    std::exit(1);
+  }
+  DEFER(photon::fini());
   while (true) {
     background_work_mutex_.Lock();
 
