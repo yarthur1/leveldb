@@ -253,7 +253,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   // const int fd_;                 // -1 if has_permanent_fd_ is false.
   Limiter* const fd_limiter_;
   const std::string filename_;
-  photon::fs::IFile* src_file;
+  mutable photon::fs::IFile* src_file;
 };
 
 // Implements random read access in a file using mmap().
