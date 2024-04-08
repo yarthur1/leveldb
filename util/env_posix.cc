@@ -167,17 +167,19 @@ class PosixSequentialFile final : public SequentialFile {
   }
 
   Status Skip(uint64_t n) override {
-    auto off = src_file->lseek(0, SEEK_END);
+    // auto off = src_file->lseek(0, SEEK_END);
+    struct stat file_stat;
+    auto off = src_file->fstat(&file_stat);
     if (off == static_cast<off_t>(-1)) {
       return PosixError(filename_, errno);
     }
     offset_ += n;
-    if (off>offset_) offset_ = off;
+    if (file_stat.st_size<offset_) offset_ = file_stat.st_size;
     return Status::OK();
   }
 
  private:
-  const int fd_;
+  // const int fd_;
   const std::string filename_;
   photon::fs::IFile* src_file;
   off_t offset_;
@@ -200,7 +202,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     if (has_permanent_fd_) {
       // assert(fd_ == -1);
       // ::close(fd);  // The file will be opened on every read.
-      int flags = O_RDONLY;
+      int flags = O_RDONLY | kOpenBaseFlags;
       auto src_engine = photon::fs::ioengine_iouring;
       src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
     }
@@ -211,7 +213,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
       // assert(fd_ != -1);
       // ::close(fd_);
       delete src_file;
-      fd_limiter_->Release();
+      fd_limiter_->Release();  // 放在if外
     }
   }
 
@@ -219,7 +221,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
               char* scratch) const override {
     // int fd = fd_;
     if (!has_permanent_fd_) {
-      int flags = O_RDONLY;
+      int flags = O_RDONLY | kOpenBaseFlags;
       auto src_engine = photon::fs::ioengine_iouring;
       src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
       // fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
@@ -311,6 +313,10 @@ class PosixWritableFile final : public WritableFile {
           auto src_engine = photon::fs::ioengine_iouring;
           src_file = photon::fs::open_localfile_adaptor(filename_.c_str(), flags, 0644, src_engine);
           assert(src_file!=nullptr);
+          struct stat file_stat;
+          auto off = src_file->fstat(&file_stat);
+          assert(off == static_cast<off_t>(-1));
+          offset_ = file_stat.st_size;
         }
 
   ~PosixWritableFile() override {
@@ -353,11 +359,12 @@ class PosixWritableFile final : public WritableFile {
 
   Status Close() override {
     Status status = FlushBuffer();
-    const int close_result = ::close(fd_);
-    if (close_result < 0 && status.ok()) {
-      status = PosixError(filename_, errno);
-    }
-    fd_ = -1;
+    // const int close_result = ::close(fd_);
+    // if (close_result < 0 && status.ok()) {
+    //   status = PosixError(filename_, errno);
+    // }
+    // fd_ = -1;
+    src_file->close();
     return status;
   }
 
@@ -393,7 +400,12 @@ class PosixWritableFile final : public WritableFile {
 
   Status WriteUnbuffered(const char* data, size_t size) {
     while (size > 0) {
-      ssize_t write_result = src_file->append(data, size);  // photon pread不好获取末尾offset
+      // struct stat file_stat;
+      // auto off = src_file->fstat(&file_stat);
+      // if (off == static_cast<off_t>(-1)) {
+      //   return PosixError(filename_, errno);
+      // }
+      ssize_t write_result = src_file->pwrite(data, size, offset_);  // photon io_uring append未实现
       // ssize_t write_result = ::write(fd_, data, size);
       if (write_result < 0) {
         if (errno == EINTR) {
@@ -403,6 +415,7 @@ class PosixWritableFile final : public WritableFile {
       }
       data += write_result;
       size -= write_result;
+      offset_ += write_result;
     }
     return Status::OK();
   }
@@ -494,6 +507,7 @@ class PosixWritableFile final : public WritableFile {
   size_t pos_;
   int fd_;
   photon::fs::IFile* src_file;
+  off_t offset_;
 
   const bool is_manifest_;  // True if the file's name starts with MANIFEST.
   const std::string filename_;
