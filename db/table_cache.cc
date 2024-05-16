@@ -68,7 +68,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     } else {
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
-      tf->table = table;
+      tf->table = table;   // 缓存索引项和布隆过滤器?
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }

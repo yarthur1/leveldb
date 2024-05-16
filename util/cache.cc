@@ -41,9 +41,9 @@ namespace {
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
 struct LRUHandle {
-  void* value;
+  void* value;   //内存块已经分配?
   void (*deleter)(const Slice&, void* value);
-  LRUHandle* next_hash;
+  LRUHandle* next_hash;   // FindPointer使用
   LRUHandle* next;
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
@@ -67,7 +67,7 @@ struct LRUHandle {
 // table implementations in some of the compiler/runtime combinations
 // we have tested.  E.g., readrandom speeds up by ~5% over the g++
 // 4.4.3's builtin hashtable.
-class HandleTable {
+class HandleTable {   //快速的查找handle,insert会删除已有的handle
  public:
   HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
   ~HandleTable() { delete[] list_; }
@@ -76,11 +76,11 @@ class HandleTable {
     return *FindPointer(key, hash);
   }
 
-  LRUHandle* Insert(LRUHandle* h) {
+  LRUHandle* Insert(LRUHandle* h) {  // 用新的替换，返回老的,不存在放到链表末尾
     LRUHandle** ptr = FindPointer(h->key(), h->hash);
     LRUHandle* old = *ptr;
     h->next_hash = (old == nullptr ? nullptr : old->next_hash);
-    *ptr = h;
+    *ptr = h;  //将handle换成h，改变了原来的链表结构，二级指针修改链表结构
     if (old == nullptr) {
       ++elems_;
       if (elems_ > length_) {
@@ -89,14 +89,14 @@ class HandleTable {
         Resize();
       }
     }
-    return old;
+    return old;  //返回老的
   }
 
-  LRUHandle* Remove(const Slice& key, uint32_t hash) {
+  LRUHandle* Remove(const Slice& key, uint32_t hash) {  //不会缩容
     LRUHandle** ptr = FindPointer(key, hash);
     LRUHandle* result = *ptr;
     if (result != nullptr) {
-      *ptr = result->next_hash;
+      *ptr = result->next_hash;   // 修改原来的结构
       --elems_;
     }
     return result;
@@ -112,7 +112,7 @@ class HandleTable {
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
   // pointer to the trailing slot in the corresponding linked list.
-  LRUHandle** FindPointer(const Slice& key, uint32_t hash) {
+  LRUHandle** FindPointer(const Slice& key, uint32_t hash) {  //返回的是指针的地址
     LRUHandle** ptr = &list_[hash & (length_ - 1)];
     while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
       ptr = &(*ptr)->next_hash;
@@ -128,14 +128,14 @@ class HandleTable {
     LRUHandle** new_list = new LRUHandle*[new_length];
     memset(new_list, 0, sizeof(new_list[0]) * new_length);
     uint32_t count = 0;
-    for (uint32_t i = 0; i < length_; i++) {
+    for (uint32_t i = 0; i < length_; i++) {  //旧元素迁移
       LRUHandle* h = list_[i];
       while (h != nullptr) {
         LRUHandle* next = h->next_hash;
         uint32_t hash = h->hash;
         LRUHandle** ptr = &new_list[hash & (new_length - 1)];
-        h->next_hash = *ptr;
-        *ptr = h;
+        h->next_hash = *ptr;  //切到新的next
+        *ptr = h;  //放在head
         h = next;
         count++;
       }
@@ -157,7 +157,7 @@ class LRUCache {
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
 
   // Like Cache methods, but with an extra "hash" parameter.
-  Cache::Handle* Insert(const Slice& key, uint32_t hash, void* value,
+  Cache::Handle* Insert(const Slice& key, uint32_t hash, void* value,   // new handle
                         size_t charge,
                         void (*deleter)(const Slice& key, void* value));
   Cache::Handle* Lookup(const Slice& key, uint32_t hash);
@@ -170,23 +170,23 @@ class LRUCache {
   }
 
  private:
-  void LRU_Remove(LRUHandle* e);
-  void LRU_Append(LRUHandle* list, LRUHandle* e);
-  void Ref(LRUHandle* e);
-  void Unref(LRUHandle* e);
-  bool FinishErase(LRUHandle* e) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void LRU_Remove(LRUHandle* e);//e从链表剔除
+  void LRU_Append(LRUHandle* list, LRUHandle* e);//e放到list之前
+  void Ref(LRUHandle* e);   //如果没使用，放到in_use链表,然后ref++
+  void Unref(LRUHandle* e);  // ref=0释放内存；如果refs=1&&incache,放到lru链表
+  bool FinishErase(LRUHandle* e) EXCLUSIVE_LOCKS_REQUIRED(mutex_);  //in_cache = false并且unref
 
   // Initialized before use.
   size_t capacity_;
 
   // mutex_ protects the following state.
   mutable port::Mutex mutex_;
-  size_t usage_ GUARDED_BY(mutex_);
+  size_t usage_ GUARDED_BY(mutex_);  // Release不会改变usage_,erase会
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // Entries have refs==1 and in_cache==true.
-  LRUHandle lru_ GUARDED_BY(mutex_);
+  LRUHandle lru_ GUARDED_BY(mutex_);  //循环链表；不再使用，放到这里?  Release之后，可能放到lru;erase之后不会放到lru
 
   // Dummy head of in-use list.
   // Entries are in use by clients, and have refs >= 2 and in_cache==true.
@@ -237,12 +237,12 @@ void LRUCache::Unref(LRUHandle* e) {
   }
 }
 
-void LRUCache::LRU_Remove(LRUHandle* e) {
+void LRUCache::LRU_Remove(LRUHandle* e) {  //e从链表剔除
   e->next->prev = e->prev;
   e->prev->next = e->next;
 }
 
-void LRUCache::LRU_Append(LRUHandle* list, LRUHandle* e) {
+void LRUCache::LRU_Append(LRUHandle* list, LRUHandle* e) {  //e放到list之前,但是list指针不会改变
   // Make "e" newest entry by inserting just before *list
   e->next = list;
   e->prev = list->prev;
@@ -271,7 +271,7 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   MutexLock l(&mutex_);
 
   LRUHandle* e =
-      reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
+      reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));  //每次new handle
   e->value = value;
   e->deleter = deleter;
   e->charge = charge;
@@ -284,17 +284,17 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   if (capacity_ > 0) {
     e->refs++;  // for the cache's reference.
     e->in_cache = true;
-    LRU_Append(&in_use_, e);
+    LRU_Append(&in_use_, e);  //e放到in_use前面;insert默认为in_use
     usage_ += charge;
-    FinishErase(table_.Insert(e));
+    FinishErase(table_.Insert(e));  // insert返回的是old handle,old handle不会放到lru list中了,in_cache = false
   } else {  // don't cache. (capacity_==0 is supported and turns off caching.)
     // next is read by key() in an assert, so it must be initialized
     e->next = nullptr;
   }
-  while (usage_ > capacity_ && lru_.next != &lru_) {
+  while (usage_ > capacity_ && lru_.next != &lru_) {  //释放lru中元素;如果都在in_use，内存超限了，怎么办?
     LRUHandle* old = lru_.next;
     assert(old->refs == 1);
-    bool erased = FinishErase(table_.Remove(old->key(), old->hash));
+    bool erased = FinishErase(table_.Remove(old->key(), old->hash));  //refs=1,会释放对象
     if (!erased) {  // to avoid unused variable when compiled NDEBUG
       assert(erased);
     }
@@ -309,7 +309,7 @@ bool LRUCache::FinishErase(LRUHandle* e) {
   if (e != nullptr) {
     assert(e->in_cache);
     LRU_Remove(e);
-    e->in_cache = false;
+    e->in_cache = false;  //不会再放到lru list
     usage_ -= e->charge;
     Unref(e);
   }
@@ -338,7 +338,7 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
  private:
-  LRUCache shard_[kNumShards];
+  LRUCache shard_[kNumShards];    // 分片数固定
   port::Mutex id_mutex_;
   uint64_t last_id_;
 

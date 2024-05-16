@@ -69,7 +69,7 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
     rep->file = file;
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
-    rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
+    rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);   //每次open时cache_id递增
     rep->filter_data = nullptr;
     rep->filter = nullptr;
     *table = new Table(rep);
@@ -145,7 +145,7 @@ static void DeleteCachedBlock(const Slice& key, void* value) {
 static void ReleaseBlock(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle);
+  cache->Release(handle);   //读完后会release handle
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -167,7 +167,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
     BlockContents contents;
     if (block_cache != nullptr) {
       char cache_key_buffer[16];
-      EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
+      EncodeFixed64(cache_key_buffer, table->rep_->cache_id);  // key=cache_id+offset
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
       cache_handle = block_cache->Lookup(key);
