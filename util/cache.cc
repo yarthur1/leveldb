@@ -186,7 +186,7 @@ class LRUCache {
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // Entries have refs==1 and in_cache==true.
-  LRUHandle lru_ GUARDED_BY(mutex_);  //循环链表；不再使用，放到这里?  Release之后，可能放到lru;erase之后不会放到lru
+  LRUHandle lru_ GUARDED_BY(mutex_);  //循环链表；不再使用，放到这里  Release之后，可能放到lru;erase之后不会放到lru
 
   // Dummy head of in-use list.
   // Entries are in use by clients, and have refs >= 2 and in_cache==true.
@@ -232,7 +232,7 @@ void LRUCache::Unref(LRUHandle* e) {
     free(e);
   } else if (e->in_cache && e->refs == 1) {
     // No longer in use; move to lru_ list.
-    LRU_Remove(e);
+    LRU_Remove(e);  //从in_use里面删除
     LRU_Append(&lru_, e);
   }
 }
@@ -264,7 +264,7 @@ void LRUCache::Release(Cache::Handle* handle) {
   Unref(reinterpret_cast<LRUHandle*>(handle));
 }
 
-Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
+Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,  // value内存已经分配
                                 size_t charge,
                                 void (*deleter)(const Slice& key,
                                                 void* value)) {
@@ -282,7 +282,7 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   std::memcpy(e->key_data, key.data(), key.size());
 
   if (capacity_ > 0) {
-    e->refs++;  // for the cache's reference.
+    e->refs++;  // for the cache's reference. 每次insert handle refs==2
     e->in_cache = true;
     LRU_Append(&in_use_, e);  //e放到in_use前面;insert默认为in_use
     usage_ += charge;
@@ -291,7 +291,7 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
     // next is read by key() in an assert, so it must be initialized
     e->next = nullptr;
   }
-  while (usage_ > capacity_ && lru_.next != &lru_) {  //释放lru中元素;如果都在in_use，内存超限了，怎么办?
+  while (usage_ > capacity_ && lru_.next != &lru_) {  //释放lru中元素;如果都在in_use，内存超限了，怎么办?用户还没有调用Release的话没办法
     LRUHandle* old = lru_.next;
     assert(old->refs == 1);
     bool erased = FinishErase(table_.Remove(old->key(), old->hash));  //refs=1,会释放对象
