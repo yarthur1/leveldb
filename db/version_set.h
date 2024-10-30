@@ -72,19 +72,19 @@ class Version {
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
   // REQUIRES: lock is not held
-  Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
+  Status Get(const ReadOptions&, const LookupKey& key, std::string* val,  // 在当前版本查找
              GetStats* stats);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
   // REQUIRES: lock is held
-  bool UpdateStats(const GetStats& stats);
+  bool UpdateStats(const GetStats& stats);  // 触发seek compact
 
   // Record a sample of bytes read at the specified internal key.
   // Samples are taken approximately once every config::kReadBytesPeriod
   // bytes.  Returns true if a new compaction may need to be triggered.
   // REQUIRES: lock is held
-  bool RecordReadSample(Slice key);
+  bool RecordReadSample(Slice key);   // 抽样触发seek compact
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -106,7 +106,7 @@ class Version {
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
-  int PickLevelForMemTableOutput(const Slice& smallest_user_key,
+  int PickLevelForMemTableOutput(const Slice& smallest_user_key,  // 选择memtable应该push到哪一层，减少写入合并
                                  const Slice& largest_user_key);
 
   int NumFiles(int level) const { return files_[level].size(); }
@@ -133,16 +133,16 @@ class Version {
   Version(const Version&) = delete;
   Version& operator=(const Version&) = delete;
 
-  ~Version();
+  ~Version();  // 会从链表移除，文件引用减一
 
-  Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
+  Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;  // 两层迭代器
 
   // Call func(arg, level, f) for every file that overlaps user_key in
   // order from newest to oldest.  If an invocation of func returns
   // false, makes no more calls.
   //
   // REQUIRES: user portion of internal_key == user_key.
-  void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
+  void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,  // seek compact
                           bool (*func)(void*, int, FileMetaData*));
 
   VersionSet* vset_;  // VersionSet to which this Version belongs
@@ -151,7 +151,7 @@ class Version {
   int refs_;          // Number of live refs to this version
 
   // List of files per level
-  std::vector<FileMetaData*> files_[config::kNumLevels];
+  std::vector<FileMetaData*> files_[config::kNumLevels];  // 当前版本的文件信息
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
@@ -160,7 +160,7 @@ class Version {
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
-  double compaction_score_;
+  double compaction_score_;  // 大于1才会触发size compact;计算为每一层总大小/阈值
   int compaction_level_;
 };
 
@@ -231,7 +231,7 @@ class VersionSet {
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
-  Compaction* PickCompaction();
+  Compaction* PickCompaction();  // 选择compact执行
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -246,7 +246,7 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
-  Iterator* MakeInputIterator(Compaction* c);
+  Iterator* MakeInputIterator(Compaction* c);  // 创建compact的迭代器
 
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
@@ -256,7 +256,7 @@ class VersionSet {
 
   // Add all files listed in any live version to *live.
   // May also mutate some internal state.
-  void AddLiveFiles(std::set<uint64_t>* live);
+  void AddLiveFiles(std::set<uint64_t>* live);  // 获取所有版本包含的文件号
 
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".
@@ -275,9 +275,9 @@ class VersionSet {
   friend class Compaction;
   friend class Version;
 
-  bool ReuseManifest(const std::string& dscname, const std::string& dscbase);
+  bool ReuseManifest(const std::string& dscname, const std::string& dscbase); //是否复用
 
-  void Finalize(Version* v);
+  void Finalize(Version* v);  // Precomputed best level for next compaction
 
   void GetRange(const std::vector<FileMetaData*>& inputs, InternalKey* smallest,
                 InternalKey* largest);
@@ -289,14 +289,14 @@ class VersionSet {
   void SetupOtherInputs(Compaction* c);
 
   // Save current contents to *log
-  Status WriteSnapshot(log::Writer* log);
+  Status WriteSnapshot(log::Writer* log); // 重写manifest
 
-  void AppendVersion(Version* v);
+  void AppendVersion(Version* v);   //将当前版本插入dummy_versions_之前
 
   Env* const env_;
   const std::string dbname_;
   const Options* const options_;
-  TableCache* const table_cache_;
+  TableCache* const table_cache_;   // tablecache属于versionset
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
@@ -339,7 +339,7 @@ class Compaction {
 
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
-  bool IsTrivialMove() const;
+  bool IsTrivialMove() const;  // 数据复用，减少io
 
   // Add all inputs to this compaction as delete operations to *edit.
   void AddInputDeletions(VersionEdit* edit);
@@ -351,7 +351,7 @@ class Compaction {
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& internal_key);
+  bool ShouldStopBefore(const Slice& internal_key);  // 避免单个文件和下层太多文件重叠
 
   // Release the input version for the compaction, once the compaction
   // is successful.

@@ -125,10 +125,10 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   size_t bytes_read = k.size() + iter_->value().size();
   while (bytes_until_read_sampling_ < bytes_read) {
     bytes_until_read_sampling_ += RandomCompactionPeriod();
-    db_->RecordReadSample(k);
+    db_->RecordReadSample(k);  // 模拟一次抽样读取
   }
   assert(bytes_until_read_sampling_ >= bytes_read);
-  bytes_until_read_sampling_ -= bytes_read;
+  bytes_until_read_sampling_ -= bytes_read;   // bytes_until_read_sampling_表示模拟抽样需要读取的字节数,只有读取超过了才会模拟抽样
 
   if (!ParseInternalKey(k, ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");

@@ -55,14 +55,14 @@ class SnapshotList {
 
   // Creates a SnapshotImpl and appends it to the end of the list.
   SnapshotImpl* New(SequenceNumber sequence_number) {
-    assert(empty() || newest()->sequence_number_ <= sequence_number);
+    assert(empty() || newest()->sequence_number_ <= sequence_number);  // 确保插入的是最新的
 
     SnapshotImpl* snapshot = new SnapshotImpl(sequence_number);
 
 #if !defined(NDEBUG)
     snapshot->list_ = this;
 #endif  // !defined(NDEBUG)
-    snapshot->next_ = &head_;
+    snapshot->next_ = &head_;  // 插入放到head的prev位置
     snapshot->prev_ = head_.prev_;
     snapshot->prev_->next_ = snapshot;
     snapshot->next_->prev_ = snapshot;

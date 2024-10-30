@@ -533,7 +533,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != nullptr) {
-      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+      level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);   // memtable放到哪一层
     }
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
@@ -565,7 +565,7 @@ void DBImpl::CompactMemTable() {
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
-    s = versions_->LogAndApply(&edit, &mutex_);
+    s = versions_->LogAndApply(&edit, &mutex_);  // manifest 改变
   }
 
   if (s.ok()) {
@@ -879,14 +879,14 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
       static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs
-  compact->compaction->AddInputDeletions(compact->compaction->edit());
+  compact->compaction->AddInputDeletions(compact->compaction->edit());  // 删除compacted 文件
   const int level = compact->compaction->level();
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
-    compact->compaction->edit()->AddFile(level + 1, out.number, out.file_size,
+    compact->compaction->edit()->AddFile(level + 1, out.number, out.file_size,  // add file
                                          out.smallest, out.largest);
   }
-  return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
+  return versions_->LogAndApply(compact->compaction->edit(), &mutex_);  // 应用新版本
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
@@ -902,12 +902,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(compact->builder == nullptr);
   assert(compact->outfile == nullptr);
   if (snapshots_.empty()) {
-    compact->smallest_snapshot = versions_->LastSequence();
+    compact->smallest_snapshot = versions_->LastSequence();   // 当前的seq
   } else {
-    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();  // 最小的序号
   }
 
-  Iterator* input = versions_->MakeInputIterator(compact->compaction);
+  Iterator* input = versions_->MakeInputIterator(compact->compaction);   // compact iter
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
@@ -933,7 +933,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
-    if (compact->compaction->ShouldStopBefore(key) &&
+    if (compact->compaction->ShouldStopBefore(key) &&   // 什么时候应该停止
         compact->builder != nullptr) {
       status = FinishCompactionOutputFile(compact, input);
       if (!status.ok()) {
@@ -955,15 +955,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // First occurrence of this user key
         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
         has_current_user_key = true;
-        last_sequence_for_key = kMaxSequenceNumber;
+        last_sequence_for_key = kMaxSequenceNumber;  // 不一定第一个key会保留
       }
 
-      if (last_sequence_for_key <= compact->smallest_snapshot) {
+      if (last_sequence_for_key <= compact->smallest_snapshot) {  // 不会再访问到，可以删除
         // Hidden by an newer entry for same user key
         drop = true;  // (A)
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
-                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {  // l+2层以上没有当前key
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
@@ -1088,7 +1088,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
-  versions_->current()->AddIterators(options, &list);
+  versions_->current()->AddIterators(options, &list);  // 将sstable文件迭代器加入
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
@@ -1126,7 +1126,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
-  Version* current = versions_->current();
+  Version* current = versions_->current();  // 始终在当前版本读取
   mem->Ref();
   if (imm != nullptr) imm->Ref();
   current->Ref();
@@ -1144,7 +1144,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
       // Done
     } else {
-      s = current->Get(options, lkey, value, &stats);
+      s = current->Get(options, lkey, value, &stats);  // 读sstable
       have_stat_update = true;
     }
     mutex_.Lock();
@@ -1180,7 +1180,7 @@ void DBImpl::RecordReadSample(Slice key) {
 
 const Snapshot* DBImpl::GetSnapshot() {
   MutexLock l(&mutex_);
-  return snapshots_.New(versions_->LastSequence());
+  return snapshots_.New(versions_->LastSequence());  // 当前最新的seq
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
